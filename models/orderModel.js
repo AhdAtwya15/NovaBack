@@ -1,9 +1,7 @@
 const mongoose = require('mongoose');
-const autoIncrement = require('mongoose-auto-increment');
+const AutoIncrement = require('mongoose-sequence')(mongoose);
 
-// npm install --save --legacy-peer-deps mongoose-auto-increment
-const connection = mongoose.createConnection(process.env.DB_URI);
-autoIncrement.initialize(connection);
+// مش محتاجين connection منفصلة تاني، mongoose-sequence بيشتغل مع الـ connection العادي
 
 const orderSchema = new mongoose.Schema(
   {
@@ -54,9 +52,14 @@ const orderSchema = new mongoose.Schema(
     },
     deliveredAt: Date,
   },
-  { timestamps: true }
+  { 
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+  }
 );
 
+// Populate middleware
 orderSchema.pre(/^find/, function (next) {
   this.populate({
     path: 'user',
@@ -65,15 +68,15 @@ orderSchema.pre(/^find/, function (next) {
     path: 'cartItems.product',
     select: 'title imageCover ratingsAverage ratingsQuantity',
   });
-
   next();
 });
 
-orderSchema.plugin(autoIncrement.plugin, {
-  model: 'Order',
-  field: 'id',
-  startAt: 1,
-  incrementBy: 1,
+// هنا اللي بدل الـ auto-increment القديم
+orderSchema.plugin(AutoIncrement, {
+  inc_field: 'id',        // الـ field اللي هيزيد تلقائي
+  id: 'order_nums',       // اسم العداد (ممكن تختاري أي اسم، بس يكون مميز)
+  start_seq: 1,           // يبدأ من 1
+  increment_by: 1
 });
 
 module.exports = mongoose.model('Order', orderSchema);
