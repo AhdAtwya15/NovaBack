@@ -7,24 +7,27 @@ const {
   deleteCategory,
   uploadCategoryImage,
   resizeImage,
-  deleteAll,
 } = require('../controllers/categoryController');
+
 const {
   createCategoryValidator,
   getCategoryValidator,
   updateCategoryValidator,
   deleteCategoryValidator,
 } = require('../utils/validators/categoryValidator');
-const authController = require('../controllers/authController');
 
+const authController = require('../controllers/authController');
 const subCategoryRoute = require('./subCategoryRoute');
 
 const router = express.Router();
+
+// Subcategories nested route
 router.use('/:categoryId/subcategories', subCategoryRoute);
 
+// Routes
 router
   .route('/')
-  .get(getCategories)
+ .get(getCategories)
   .post(
     authController.auth,
     authController.allowedTo('admin', 'manager'),
@@ -32,8 +35,7 @@ router
     resizeImage,
     createCategoryValidator,
     createCategory
-  )
-  .delete(deleteAll);
+  );
 
 router
   .route('/:id')
