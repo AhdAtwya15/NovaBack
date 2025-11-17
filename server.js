@@ -84,6 +84,8 @@ const express = require('express');
 const dotenv = require('dotenv');
 
 dotenv.config({ path: 'config.env' });
+
+process.env.BASE_URL = process.env.BASE_URL || 'https://novaback.vercel.app';
 console.log('📦 Connecting to MongoDB:', process.env.DB_URI);
 
 // للتأكد من الـ credentials (اختياري)
