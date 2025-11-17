@@ -1,6 +1,6 @@
 const multer = require('multer');
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('cloudinary').v2;
+const { promisify } = require('util');
 const ApiError = require('../utils/apiError');
 
 // Cloudinary config
@@ -18,36 +18,81 @@ const multerFilter = (req, file, cb) => {
   }
 };
 
-// Single image upload
-exports.uploadSingleImage = (fieldName, folder = 'ecommerce') => {
-  const storage = new CloudinaryStorage({
-    cloudinary,
-    params: {
-      folder: `ecommerce/${folder}`,
-      allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-      transformation: [
-        { width: 1000, height: 1000, crop: 'limit' },
-        { quality: 'auto' }
-      ]
-    },
-  });
+// Memory storage for multer (no disk write)
+const storage = multer.memoryStorage();
 
-  return multer({ storage, fileFilter: multerFilter }).single(fieldName);
+// Basic multer upload (saves to memory)
+const upload = multer({ storage, fileFilter: multerFilter });
+
+// Single image upload + Cloudinary upload
+exports.uploadSingleImage = (fieldName, folder = 'ecommerce') => {
+  return async (req, res, next) => {
+    const uploadSingle = promisify(upload.single(fieldName));
+    try {
+      await uploadSingle(req, res);
+      if (req.file) {
+        const result = await cloudinary.uploader.upload_stream(
+          { folder: `ecommerce/${folder}`, transformation: [{ width: 1000, height: 1000, crop: 'limit' }] },
+          (error, result) => {
+            if (error) {
+              next(new ApiError('Upload error', 500));
+            } else {
+              req.body[fieldName] = result.secure_url;
+              next();
+            }
+          }
+        ).end(req.file.buffer);
+      } else {
+        next();
+      }
+    } catch (error) {
+      next(new ApiError('Upload failed', 500));
+    }
+  };
 };
 
-// Multiple images upload
+// Multiple images upload + Cloudinary upload
 exports.uploadMixOfImages = (fields, folder = 'products') => {
-  const storage = new CloudinaryStorage({
-    cloudinary,
-    params: {
-      folder: `ecommerce/${folder}`,
-      allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-      transformation: [
-        { width: 1000, height: 1000, crop: 'limit' },
-        { quality: 'auto' }
-      ]
-    },
-  });
+  return async (req, res, next) => {
+    const uploadFields = promisify(upload.fields(fields));
+    try {
+      await uploadFields(req, res);
+      if (req.files) {
+        const uploadPromises = [];
+        const fieldNames = Object.keys(req.files);
 
-  return multer({ storage, fileFilter: multerFilter }).fields(fields);
+        fieldNames.forEach((fieldName) => {
+          req.files[fieldName].forEach((file) => {
+            uploadPromises.push(
+              new Promise((resolve, reject) => {
+                cloudinary.uploader.upload_stream(
+                  { 
+                    folder: `ecommerce/${folder}`, 
+                    transformation: [{ width: 1000, height: 1000, crop: 'limit' }] 
+                  },
+                  (error, result) => {
+                    if (error) reject(error);
+                    else resolve(result);
+                  }
+                ).end(file.buffer);
+              })
+            );
+          });
+        });
+
+        const results = await Promise.all(uploadPromises);
+        results.forEach((result, index) => {
+          const fieldName = fieldNames[index % fieldNames.length];
+          if (!req.body[fieldName]) req.body[fieldName] = [];
+          req.body[fieldName].push(result.secure_url);
+        });
+
+        next();
+      } else {
+        next();
+      }
+    } catch (error) {
+      next(new ApiError('Upload failed', 500));
+    }
+  };
 };
