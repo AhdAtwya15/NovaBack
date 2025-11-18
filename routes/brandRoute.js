@@ -6,7 +6,6 @@ const {
   updateBrand,
   deleteBrand,
   uploadBrandImage,
-  resizeImage,
   deleteAll,
 } = require('../controllers/brandController');
 const {
@@ -27,7 +26,6 @@ router
     authController.auth,
     authController.allowedTo('admin', 'manager'),
     uploadBrandImage,
-    resizeImage,
     createBrandValidator,
     createBrand
   )
@@ -41,7 +39,6 @@ router
     authController.auth,
     authController.allowedTo('admin', 'manager'),
     uploadBrandImage,
-    resizeImage,
     updateBrandValidator,
     updateBrand
   )
