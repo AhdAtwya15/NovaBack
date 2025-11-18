@@ -1,6 +1,3 @@
-// 
-
-const asyncHandler = require('express-async-handler');
 const factory = require('./handlersFactory');
 const { uploadSingleImage } = require('../middlewares/imageUpload');
 const Brand = require('../models/brandModel');

@@ -1,22 +1,3 @@
-// const mongoose = require('mongoose');
-
-// // Connect to db
-// const dbConnection = () => {
-//   mongoose
-//     .connect(process.env.DB_URI)
-//     .then((conn) => {
-//       console.log(
-//         `Database Connected : ${conn.connection.host}`.cyan.underline
-//       );
-//     })
-//     .catch((err) => {
-//       console.error(`Database Error: ${err}`.red);
-//       process.exit(1);
-//     });
-// };
-
-// module.exports = dbConnection;
-
 const mongoose = require("mongoose");
 
 const dbConnection = () => {
@@ -24,9 +5,12 @@ const dbConnection = () => {
     .connect(process.env.DB_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 30000, // 30 seconds بدل 5 ثواني الافتراضي
-      socketTimeoutMS: 45000, // 45 ثانية لتفادي وقف الاتصال
-      maxPoolSize: 10, // تثبيت عدد الاتصالات
+      serverSelectionTimeoutMS: 30000, // 30 seconds instead of default 5 seconds
+      socketTimeoutMS: 45000, // 45 seconds to avoid connection drops
+      maxPoolSize: 5, // Reduced pool size for free tier
+      minPoolSize: 1, // Minimum connections to keep open
+      maxIdleTimeMS: 30000, // Close connections after 30 seconds of inactivity
+      waitQueueTimeoutMS: 10000, // 10 seconds queue timeout
     })
     .then((conn) => {
       console.log(
