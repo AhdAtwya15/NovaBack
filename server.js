@@ -116,6 +116,7 @@ app.use(
       'http://localhost:5173',
       'http://localhost:3000',
       'https://novaback.vercel.app',
+      "https://nova-tau-one.vercel.app"
       // أضيفي أي domain تاني هنا بعدين
     ],
     credentials: true,

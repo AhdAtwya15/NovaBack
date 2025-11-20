@@ -141,7 +141,7 @@ exports.checkoutSession = asyncHandler(async (req, res, next) => {
     ],
     mode: 'payment',
     // success_url: `${req.protocol}://${req.get('host')}/orders`,
-    success_url: `${process.env.FRONTEND_URL}/profile/orders`,
+    success_url: `${process.env.FRONTEND_URL}/success`,
     // cancel_url: `${req.protocol}://${req.get('host')}/cart`,
     cancel_url: `${process.env.FRONTEND_URL}/cart`,
     customer_email: req.user.email,
