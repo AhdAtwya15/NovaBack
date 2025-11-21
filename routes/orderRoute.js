@@ -7,6 +7,7 @@ const {
   updateOrderToPaid,
   updateOrderToDelivered,
   checkoutSession,
+  verifyOrder,
 } = require('../controllers/orderService');
 
 const authController = require('../controllers/authController');
@@ -34,5 +35,6 @@ router
 
 router.put('/:id/pay', updateOrderToPaid);
 router.put('/:id/deliver', updateOrderToDelivered);
+router.get('/verify/:cartId', authController.allowedTo('user'), verifyOrder);
 
 module.exports = router;

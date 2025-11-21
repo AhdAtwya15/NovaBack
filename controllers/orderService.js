@@ -129,33 +129,45 @@ exports.checkoutSession = asyncHandler(async (req, res, next) => {
     ? cart.totalAfterDiscount
     : cart.totalCartPrice;
 
+  // Validate cart has items
+  if (!cart.products || cart.products.length === 0) {
+    return next(
+      new ApiError('Cart is empty', 400)
+    );
+  }
+
   // 3) Create checkout session
-  const session = await stripe.checkout.sessions.create({
-    line_items: [
-      {
-        name: req.user.name,
-        amount: cartPrice * 100,
-        currency: 'egp',
-        quantity: 1,
-      },
-    ],
-    mode: 'payment',
-    // success_url: `${req.protocol}://${req.get('host')}/orders`,
-    success_url: `${process.env.FRONTEND_URL}/success`,
-    // cancel_url: `${req.protocol}://${req.get('host')}/cart`,
-    cancel_url: `${process.env.FRONTEND_URL}/cart`,
-    customer_email: req.user.email,
-    client_reference_id: req.params.cartId,
-    metadata: req.body.shippingAddress,
-  });
+  try {
+    const session = await stripe.checkout.sessions.create({
+      line_items: [
+        {
+          name: req.user.name,
+          amount: cartPrice * 100,
+          currency: 'egp',
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      // success_url: `${req.protocol}://${req.get('host')}/orders`,
+      success_url: `${process.env.FRONTEND_URL}/success`,
+      // cancel_url: `${req.protocol}://${req.get('host')}/cart`,
+      cancel_url: `${process.env.FRONTEND_URL}/cart`,
+      customer_email: req.user.email,
+      client_reference_id: req.params.cartId,
+      metadata: req.body.shippingAddress,
+    });
 
-  // res.redirect(303, session.url);
-
-  // 3) Create session as response
-  res.status(200).json({
-    status: 'success',
-    session,
-  });
+    // 4) Create session as response
+    res.status(200).json({
+      status: 'success',
+      session,
+    });
+  } catch (error) {
+    console.error('❌ Error creating checkout session:', error);
+    return next(
+      new ApiError('Error creating payment session', 500)
+    );
+  }
 });
 
 // const createOrderCheckout = async (session) => {
@@ -198,34 +210,64 @@ exports.checkoutSession = asyncHandler(async (req, res, next) => {
 
 
 const createOrderCheckout = async (session) => {
-  const cartId = session.client_reference_id;
-  const checkoutAmount = session.amount_total / 100; // هنا بدل display_items
-  const shippingAddress = session.metadata;
+  try {
+    const cartId = session.client_reference_id;
+    const checkoutAmount = session.amount_total / 100; // Convert from cents to dollars
+    const shippingAddress = session.metadata;
 
-  const cart = await Cart.findById(cartId);
-  const user = await User.findOne({ email: session.customer_email });
+    console.log('Creating order for cart:', cartId);
+    
+    const cart = await Cart.findById(cartId);
+    if (!cart) {
+      console.error('Cart not found for ID:', cartId);
+      return;
+    }
+    
+    const user = await User.findOne({ email: session.customer_email });
+    if (!user) {
+      console.error('User not found for email:', session.customer_email);
+      return;
+    }
 
-  if (!cart || !user) return; // safety check
+    // Check if an order was recently created (within last 5 minutes) to prevent duplicates
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const recentOrder = await Order.findOne({
+      user: user._id,
+      isPaid: true,
+      paidAt: { $gte: fiveMinutesAgo }
+    });
+    
+    if (recentOrder) {
+      console.log('Recent order already exists for user:', user._id);
+      return;
+    }
 
-  const order = await Order.create({
-    user: user._id,
-    cartItems: cart.products,
-    shippingAddress,
-    totalOrderPrice: checkoutAmount,
-    paymentMethodType: 'card',
-    isPaid: true,
-    paidAt: Date.now(),
-  });
+    const order = await Order.create({
+      user: user._id,
+      cartItems: cart.products,
+      shippingAddress,
+      totalOrderPrice: checkoutAmount,
+      paymentMethodType: 'card',
+      isPaid: true,
+      paidAt: Date.now(),
+    });
 
-  if (order) {
-    const bulkOption = cart.products.map((item) => ({
-      updateOne: {
-        filter: { _id: item.product },
-        update: { $inc: { quantity: -item.count, sold: +item.count } },
-      },
-    }));
-    await Product.bulkWrite(bulkOption);
-    await Cart.findByIdAndDelete(cart._id);
+    console.log('Order created successfully:', order._id);
+
+    if (order) {
+      const bulkOption = cart.products.map((item) => ({
+        updateOne: {
+          filter: { _id: item.product },
+          update: { $inc: { quantity: -item.count, sold: +item.count } },
+        },
+      }));
+      await Product.bulkWrite(bulkOption);
+      await Cart.findByIdAndDelete(cartId);
+      console.log('Cart cleared and product quantities updated');
+    }
+  } catch (error) {
+    console.error('Error in createOrderCheckout:', error);
+    throw error; // Re-throw to be caught by webhook handler
   }
 };
 
@@ -271,8 +313,44 @@ exports.webhookCheckout = async (req, res, next) => {
   console.log('⚡ Stripe webhook received:', event.type);
 
   if (event.type === 'checkout.session.completed') {
-    await createOrderCheckout(event.data.object);
+    try {
+      await createOrderCheckout(event.data.object);
+      console.log('✅ Order created successfully for session:', event.data.object.id);
+    } catch (error) {
+      console.error('❌ Error creating order from webhook:', error);
+      return res.status(500).send(`Error creating order: ${error.message}`);
+    }
   }
 
   res.status(200).json({ received: true });
 };
+
+// @desc    Verify if order was created after payment
+// @route   GET /api/orders/verify/:cartId
+// @access  Private/User
+exports.verifyOrder = asyncHandler(async (req, res, next) => {
+  const { cartId } = req.params;
+  
+  // Check if order exists for this cart
+  const order = await Order.findOne({
+    'cartItems._id': cartId,
+    user: req.user._id
+  });
+  
+  if (order) {
+    res.status(200).json({
+      status: 'success',
+      orderExists: true,
+      order
+    });
+  } else {
+    // Check if cart still exists (payment might have failed)
+    const cart = await Cart.findById(cartId);
+    
+    res.status(200).json({
+      status: 'success',
+      orderExists: false,
+      cartExists: !!cart
+    });
+  }
+});
